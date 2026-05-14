@@ -76,6 +76,90 @@ const PALETTE = [
   [255, 200, 100],   // gold
 ];
 
+const moon = { angle: Math.PI / 4 };
+const MOON_R = 26;
+const MOON_SPEED = 0.0035;
+const MOON_SUN_ANGLE = -Math.PI / 4; // fixed sun direction: upper-right
+
+function drawMoon() {
+  moon.angle += MOON_SPEED;
+  const orbitR = Math.min(W, H) * 0.28;
+  const mx = W / 2 + Math.cos(moon.angle) * orbitR;
+  const my = H / 2 + Math.sin(moon.angle) * orbitR;
+  const R = MOON_R;
+
+  ctx.save();
+
+  // Faint dashed orbit ring
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2, orbitR, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([3, 10]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Atmosphere glow
+  const glow = ctx.createRadialGradient(mx, my, R * 0.6, mx, my, R * 3.5);
+  glow.addColorStop(0, 'rgba(200,215,255,0.13)');
+  glow.addColorStop(1, 'rgba(100,130,220,0)');
+  ctx.beginPath();
+  ctx.arc(mx, my, R * 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = glow;
+  ctx.fill();
+
+  // Clip to moon disc for surface + craters + phase
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(mx, my, R, 0, Math.PI * 2);
+  ctx.clip();
+
+  // Surface gradient, lit from sun direction
+  const lx = mx + Math.cos(MOON_SUN_ANGLE) * R * 0.4;
+  const ly = my + Math.sin(MOON_SUN_ANGLE) * R * 0.4;
+  const bodyGrad = ctx.createRadialGradient(lx, ly, 0, mx, my, R);
+  bodyGrad.addColorStop(0, '#dde5ff');
+  bodyGrad.addColorStop(0.5, '#b2bcd8');
+  bodyGrad.addColorStop(1, '#7880a0');
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(mx - R, my - R, R * 2, R * 2);
+
+  // Craters: [offsetX, offsetY, radius]
+  for (const [ox, oy, r] of [[-7,-4,5],[7,6,4.5],[-2,9,3.5],[10,-9,3],[1,-12,2.5],[-13,5,3]]) {
+    ctx.beginPath();
+    ctx.arc(mx + ox, my + oy, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(55,65,92,0.42)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(mx + ox + r * 0.35, my + oy - r * 0.35, r * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fill();
+  }
+
+  // Phase shadow — strength cycles with orbital position relative to sun
+  const phaseAngle = moon.angle - MOON_SUN_ANGLE;
+  const shadowStrength = 0.52 + 0.44 * Math.cos(phaseAngle);
+  const scx = mx - Math.cos(MOON_SUN_ANGLE) * R * 0.5;
+  const scy = my - Math.sin(MOON_SUN_ANGLE) * R * 0.5;
+  const sGrad = ctx.createRadialGradient(scx, scy, 0, scx, scy, R * 1.6);
+  sGrad.addColorStop(0, `rgba(0,0,18,${shadowStrength})`);
+  sGrad.addColorStop(0.55, `rgba(0,0,10,${(shadowStrength * 0.55).toFixed(2)})`);
+  sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sGrad;
+  ctx.fillRect(mx - R, my - R, R * 2, R * 2);
+
+  ctx.restore(); // end clip
+
+  // Rim highlight
+  ctx.beginPath();
+  ctx.arc(mx, my, R, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(210,225,255,0.25)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 class Particle {
   constructor(x, y, burst = false) {
     this.x = x ?? Math.random() * W;
@@ -234,6 +318,7 @@ function loop() {
   ctx.fillRect(0, 0, W, H);
 
   drawMouseAura();
+  drawMoon();
   drawConnections();
 
   // remove dead, spawn new
