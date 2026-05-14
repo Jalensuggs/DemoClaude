@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Galaxy Visualization</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Helvetica Neue', sans-serif;
+  }
+  canvas { display: block; }
+  #ui {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 12px;
+    z-index: 10;
+  }
+  button {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.7);
+    border: 1px solid rgba(255,255,255,0.15);
+    padding: 8px 18px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+    backdrop-filter: blur(10px);
+  }
+  button:hover {
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    border-color: rgba(255,255,255,0.35);
+  }
+  #label {
+    position: fixed;
+    top: 24px;
+    left: 28px;
+    color: rgba(255,255,255,0.25);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div id="label">Particle Galaxy · Move mouse · Click to burst</div>
+<canvas id="c"></canvas>
+<div id="ui">
+  <button onclick="setMode('attract')">Attract</button>
+  <button onclick="setMode('repel')">Repel</button>
+  <button onclick="setMode('orbit')">Orbit</button>
+  <button onclick="addBurst()">Big Bang</button>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+let mouse = { x: W / 2, y: H / 2, down: false };
+let mode = 'orbit';
+let particles = [];
+let time = 0;
+
+const PALETTE = [
+  [100, 180, 255],   // blue
+  [180, 100, 255],   // purple
+  [255, 100, 180],   // pink
+  [100, 255, 200],   // cyan
+  [255, 200, 100],   // gold
+];
+
+class Particle {
+  constructor(x, y, burst = false) {
+    this.x = x ?? Math.random() * W;
+    this.y = y ?? Math.random() * H;
+    const speed = burst ? 4 + Math.random() * 8 : Math.random() * 1.5;
+    const angle = Math.random() * Math.PI * 2;
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.life = 1;
+    this.decay = burst ? 0.006 + Math.random() * 0.006 : 0.0008 + Math.random() * 0.0005;
+    this.size = burst ? 1.5 + Math.random() * 2.5 : 0.8 + Math.random() * 2;
+    const col = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    this.r = col[0]; this.g = col[1]; this.b = col[2];
+    this.trail = [];
+    this.maxTrail = burst ? 6 : 12;
+  }
+
+  update() {
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+
+    const dx = mouse.x - this.x;
+    const dy = mouse.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const force = Math.min(80 / (dist * dist), 0.8);
+
+    if (mode === 'attract') {
+      this.vx += (dx / dist) * force * 0.6;
+      this.vy += (dy / dist) * force * 0.6;
+    } else if (mode === 'repel') {
+      this.vx -= (dx / dist) * force * 0.8;
+      this.vy -= (dy / dist) * force * 0.8;
+    } else if (mode === 'orbit') {
+      // perpendicular force for orbiting
+      this.vx += (-dy / dist) * force * 0.5 + (dx / dist) * force * 0.05;
+      this.vy += (dx / dist) * force * 0.5 + (dy / dist) * force * 0.05;
+    }
+
+    // gentle drag
+    this.vx *= 0.985;
+    this.vy *= 0.985;
+
+    // subtle global spin
+    const cx = W / 2, cy = H / 2;
+    const gdx = this.x - cx, gdy = this.y - cy;
+    const gdist = Math.sqrt(gdx * gdx + gdy * gdy) || 1;
+    const spin = 0.00008;
+    this.vx += -gdy / gdist * spin * gdist * 0.1;
+    this.vy += gdx / gdist * spin * gdist * 0.1;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    // wrap edges
+    if (this.x < -20) this.x = W + 20;
+    if (this.x > W + 20) this.x = -20;
+    if (this.y < -20) this.y = H + 20;
+    if (this.y > H + 20) this.y = -20;
+
+    this.life -= this.decay;
+  }
+
+  draw() {
+    if (this.life <= 0) return;
+    const alpha = this.life;
+
+    // draw trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = i / this.trail.length;
+      const ta = alpha * t * 0.3;
+      ctx.beginPath();
+      ctx.arc(this.trail[i].x, this.trail[i].y, this.size * t, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${this.r},${this.g},${this.b},${ta})`;
+      ctx.fill();
+    }
+
+    // glow
+    const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 4);
+    grd.addColorStop(0, `rgba(${this.r},${this.g},${this.b},${alpha * 0.6})`);
+    grd.addColorStop(1, `rgba(${this.r},${this.g},${this.b},0)`);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 4, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    // core
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.9})`;
+    ctx.fill();
+  }
+}
+
+function init() {
+  particles = [];
+  for (let i = 0; i < 320; i++) {
+    particles.push(new Particle());
+  }
+}
+
+function addBurst(x, y) {
+  const bx = x ?? W / 2, by = y ?? H / 2;
+  for (let i = 0; i < 120; i++) {
+    particles.push(new Particle(bx, by, true));
+  }
+}
+
+function setMode(m) { mode = m; }
+
+function drawConnections() {
+  const limit = 200;
+  const maxDist = 90;
+  let count = 0;
+  for (let i = 0; i < particles.length && count < limit; i++) {
+    const a = particles[i];
+    if (a.life <= 0) continue;
+    for (let j = i + 1; j < particles.length && count < limit; j++) {
+      const b = particles[j];
+      if (b.life <= 0) continue;
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < maxDist) {
+        count++;
+        const alpha = (1 - d / maxDist) * 0.25 * Math.min(a.life, b.life);
+        const mr = Math.round((a.r + b.r) / 2);
+        const mg = Math.round((a.g + b.g) / 2);
+        const mb = Math.round((a.b + b.b) / 2);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = `rgba(${mr},${mg},${mb},${alpha})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function drawMouseAura() {
+  const r = 80 + Math.sin(time * 0.04) * 20;
+  const grd = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, r);
+  grd.addColorStop(0, `rgba(200,160,255,0.12)`);
+  grd.addColorStop(1, `rgba(100,80,200,0)`);
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  time++;
+
+  // fade background
+  ctx.fillStyle = 'rgba(0,0,4,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawMouseAura();
+  drawConnections();
+
+  // remove dead, spawn new
+  particles = particles.filter(p => p.life > 0);
+  while (particles.length < 320) particles.push(new Particle());
+
+  for (const p of particles) {
+    p.update();
+    p.draw();
+  }
+
+  // center nebula pulse
+  const pulse = 0.5 + Math.sin(time * 0.02) * 0.5;
+  const nebR = 160 + pulse * 40;
+  const neb = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, nebR);
+  neb.addColorStop(0, `rgba(80,40,160,${0.03 * pulse})`);
+  neb.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(W/2, H/2, nebR, 0, Math.PI * 2);
+  ctx.fillStyle = neb;
+  ctx.fill();
+}
+
+// events
+canvas.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+canvas.addEventListener('click', e => {
+  addBurst(e.clientX, e.clientY);
+});
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
+
+init();
+loop();
+</script>
+</body>
+</html>
